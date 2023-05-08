@@ -1,0 +1,110 @@
+#!/bin/bash
+
+# Constants -------------------------------------------------------------------
+
+HISTORY_DIR="$HOME/.minify_tf_plan_history"
+HISTORY_FILE="$HISTORY_DIR/latest"
+STATUS_FILE="$HISTORY_DIR/status"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+ADD_SIGN="${GREEN}+${NC}"
+REMOVE_SIGN="${RED}-${NC}"
+CHANGE_SIGN="${YELLOW}~${NC}"
+REPLACE_SIGN="${RED}-${GREEN}+${NC}"
+OTHER_SIGN="${BLUE}*${NC}"
+
+NAME="minify_tf"
+VERSION="v0.0.1"
+
+# Command Line Interface -------------------------------------------------------
+if [[ "$1" == "regenfull" ]]; then
+    cat $HISTORY_FILE
+    exit 0
+elif [[ "$1" == "regen" ]]; then
+    plan=$(cat $HISTORY_FILE)
+    status=$(cat $STATUS_FILE)
+elif [[ "$1" == "destroy" ]]; then
+    plan="$(terraform plan -destroy -detailed-exitcode -input=false)"
+    status=$?
+elif [[ "$1" == "plan" ]]; then
+    plan="$(terraform plan -detailed-exitcode -input=false)"
+    status=$?
+elif [[ "$1" == "about" ]]; then
+    NV="$NAME $VERSION"
+    NV_LEN=${#NV}
+    SPACES_LEN=$(( 26 - $NV_LEN ))
+    for (( i=0; i<$SPACES_LEN; i++ )); do
+        NV="$NV "
+    done
+
+    echo "+----------------------------+"
+    echo "| $NV |"
+    echo "| by @k3y0708                |"
+    echo "| https://github.com/k3y0708 |"
+    echo "+----------------------------+"
+    exit 0
+elif [[ "$1" == "version" ]]; then
+    echo "$VERSION"
+    exit 0
+else
+    echo "Usage: $0 [plan|destroy|regen|regenfull|about|version]"
+    exit 1
+fi
+
+# Save history and status -----------------------------------------------------
+if [[ "$1" != *"regen"* ]]; then
+    mkdir -p "$HISTORY_DIR"
+    echo "$plan" > "$HISTORY_FILE"
+    echo "$status" > "$STATUS_FILE"
+fi
+
+# Check if there are changes --------------------------------------------------
+if [[ "$status" == "0" ]]; then
+    echo "No changes. Infrastructure is up-to-date."
+    exit 0
+fi
+if [[ "$status" == "1" ]]; then
+    echo "Error in terraform plan"
+    exit 1
+fi
+if [[ "$status" != "2" ]]; then
+    echo "Unknown error in terraform plan"
+    echo "Please contact the developer ($NAME about)"
+    exit 1
+fi
+
+# Print changes ---------------------------------------------------------------
+out="$(echo "$plan" | grep "  # " | sed 's/  # //g')"
+
+add="$(echo "$out" | sed -e 's/\x1b\[[0-9;]*m//g' | grep ' will be created' | sed 's/ will be created//g')"
+remove="$(echo "$out" | sed -e 's/\x1b\[[0-9;]*m//g' | grep ' will be destroyed' | sed 's/ will be destroyed//g')"
+change="$(echo "$out" | sed -e 's/\x1b\[[0-9;]*m//g' | grep ' will be updated' | sed 's/ will be updated//g')"
+replace="$(echo "$out" | sed -e 's/\x1b\[[0-9;]*m//g' | grep ' must be replaced' | sed 's/ must be replaced//g')"
+other="$(echo "$out" | sed -e 's/\x1b\[[0-9;]*m//g'| grep -v ' will be created' | grep -v ' will be destroyed' | grep -v ' will be updated' | grep -v ' must be replaced' | grep -v '(because ' | grep -v '(depends '| tr ' ' '§§§')"
+
+for line in $add; do
+    echo -e "$ADD_SIGN  $line"
+done
+
+for line in $remove; do
+    echo -e "$REMOVE_SIGN  $line"
+done
+
+for line in $change; do
+    if [[ "$line" != *"in-place"* ]]; then
+        echo -e "$CHANGE_SIGN  $line"
+    fi
+done
+
+for line in $replace; do
+    echo -e "$REPLACE_SIGN $line"
+done
+
+for line in $other; do
+    echo -e "$OTHER_SIGN  $(echo "$line" | tr '§§§' ' ')"
+done
