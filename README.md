@@ -34,5 +34,5 @@ There are two ways of installing this script:
 
 ```bash
 brew tap k3y0708/tap
-brew install minify_tf
+brew install k3y0708/tap/minify-tf
 ```
